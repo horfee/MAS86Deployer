@@ -86,7 +86,7 @@ This script will _not_ create:
 ```
 ./install_mas_mso.sh 
 ```
-Once deployed / activated, you will need to grant a user in MAS dashboard to MSO, in order to connect to MSO dashboard at https://_instanceid_>_.mso._domain_/
+Once deployed / activated, you will need to grant a user in MAS dashboard to MSO, in order to connect to MSO dashboard at https://_instanceid_.mso._domain_/
 Then navigate in the "Projects" section and copy the api key
 In maximo system properties, you must now modify the values :
 - optimization.mofapi.apikey : the apikey you just get from MSO dashboard
