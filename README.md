@@ -86,11 +86,11 @@ This script will _not_ create:
 ```
 ./install_mas_mso.sh 
 ```
-Once deployed / activated, you will need to grant a user in MAS dashboard to MSO, in order to connect to MSO dashboard at https://<instanceid>.mso.<domain>/
+Once deployed / activated, you will need to grant a user in MAS dashboard to MSO, in order to connect to MSO dashboard at https://_instanceid_>_.mso._domain_/
 Then navigate in the "Projects" section and copy the api key
 In maximo system properties, you must now modify the values :
 - optimization.mofapi.apikey : the apikey you just get from MSO dashboard
-- optimization.mofapi.baseurl : https://<instanceid>.api.mso.<domain>
-- optimization.mofui.url : https://<instanceid>.mso.<domain>
+- optimization.mofapi.baseurl : https://_instanceid_.api.mso._domain_
+- optimization.mofui.url : https://_instanceid_.mso._domain_
 
 Save and refresh : you can now run optimization scenario within Scheduler.
