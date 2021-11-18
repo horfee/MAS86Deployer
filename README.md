@@ -54,7 +54,7 @@ This will install :
 
 ## MAS Core
 MAS Core needs some software to be completely setup. When installing MAS Core, you can interact / setup the integration in 2 ways.
-First  way is through a graphical dashboard, available on url https://admin.<domain>/intialsetup and the script will output the credentials on the console or available in a secret :
+First  way is through a graphical dashboard, available on url https://admin._domain_/intialsetup and the script will output the credentials on the console or available in a secret :
 ```
 # instanceid is the value setup in the mas.properties file
 namespace=mas-${instanceid}-core
@@ -71,6 +71,8 @@ To install MAS Core, simply use
 
 ## MAS Manage
 MAS Manage is not fully automated for now (not sure it will be) : the declaration of bundles is more complex / obscur and easy / quick to perform manually.
+You can put all certificates you want to import in the folder managecerts. The file must be *.crt file, containing certificate (the same text you would copy/paste in the UI dashboad).
+
 ```
 ./install_mas_manage.sh 
 ```
