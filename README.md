@@ -15,7 +15,14 @@ This script is used to :
 - You may need a domain name, to shorten url. Be careful : There are some limitation in software (eg: MAS Mobile) which will add a constraint on url length : url length must be less than 100 characters. having a domain name will be then useful to shorten the default url.
 - You  may need to manually create a webhook / alter the script to add extra step to manage SSL certificates according to your domain name. Today cert-manager have built-in domain name support, such as cloudfare, google, azuredns, etc. (see https://cert-manager.io/docs/configuration/acme/dns01/)
 This script does not manually generate ClusterIssuer, which should be on your behalf to create SSL certificate automatically.
-
+- ensure you are logged in before running the scripts :
+```
+oc whoami
+```
+If you are not logged in, please log in with the command :
+```
+oc login --token=sha256~LTMSoYifev9r8K-...TLXOEF7AyXnzzEFqc --server=https://....containers.cloud.ibm.com:31710
+```
 
 In order to install automatically the software you have to :
 - modify mas.properties file, in order to match your settings
@@ -28,6 +35,7 @@ In order to install automatically the software you have to :
 
 ## mas.properties file
 *ER_KEY* is the entitlement key obtained through the container library software panel on myibm.ibm.com website. This value is mandatory and will be repeated in all properties file.
+
 *domain* is the domain name that should be used to register all apps. If unset, the ingress subdomain will be resolved. If you purchased a domain, you should add a CNAME record to your DNS zone pointing to the ingress subdomain domain.
 
 ## MAS Pre-requisite
