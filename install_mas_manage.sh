@@ -365,7 +365,6 @@ do
   fi
 done
 managecerts=$(echo -n "${managecerts}" | sed 's/^/\ \ \ \ \ \ \ \ /g')
-echo "$managecerts"
 
 cat << EOF > tmp/mas_manage_config.yaml
 apiVersion: apps.mas.ibm.com/v1
