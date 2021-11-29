@@ -13,8 +13,8 @@ if [[ "$?" == "1" ]]; then
   oc new-project "mas-${instanceid}-core" --display-name "Maximo Application Suite" > /dev/null 2>&1
 fi
 
-rm -rf tmp
-mkdir tmp
+rm -rf tmp_mas
+mkdir tmp_mas
 
 
 namespace=$(oc config view --minify -o 'jsonpath={..namespace}')
@@ -31,10 +31,10 @@ else
   echo "Domain is preset with ${domain}"
 fi
 
-echo_h2 "[1/6] Installing operator"
+echo_h2 "[1/8] Installing operator"
 echo "	Operator will be by default set up to manual on channel 8.x"
 
-cat << EOF > tmp/mas_operatorgroup.yaml
+cat << EOF > tmp_mas/mas_operatorgroup.yaml
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
@@ -45,10 +45,10 @@ spec:
     - ${namespace}
 EOF
 
-oc apply -f tmp/mas_operatorgroup.yaml > /dev/null 2>&1
+oc apply -f tmp_mas/mas_operatorgroup.yaml > /dev/null 2>&1
 echo "	Operator group created"
 
-cat << EOF > tmp/mas_operator.yaml
+cat << EOF > tmp_mas/mas_operator.yaml
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
@@ -62,7 +62,7 @@ spec:
   sourceNamespace: openshift-marketplace
 EOF
 
-oc apply -f tmp/mas_operator.yaml > /dev/null 2>&1
+oc apply -f tmp_mas/mas_operator.yaml > /dev/null 2>&1
 echo "	Operator created"
 
 while [[ $(oc get Subscription ibm-mas -n ${namespace} --ignore-not-found=true -o jsonpath='{.status.state}') != "UpgradePending" ]];do sleep 5; done & 
@@ -84,7 +84,7 @@ printf '\b'
 echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}"
 
 echo -n "	Instanciating the suite... "
-cat << EOF > tmp/mas_suite.yaml
+cat << EOF > tmp_mas/mas_suite.yaml
 apiVersion: core.mas.ibm.com/v1
 kind: Suite
 metadata:
@@ -102,16 +102,32 @@ spec:
     accept: true
 EOF
 
-oc apply -f tmp/mas_suite.yaml > /dev/null 2>&1
+
+if [ ! -z ${clusterissuer+x} ]; then
+
+  if  [ -z ${clusterissuer_renew} ]; then
+    clusterissuer_renew="720h0m0s"
+  fi
+
+  if  [ -z ${clusterissuer_duration} ]; then
+    clusterissuer_duration="8760h0m0s"
+  fi
+
+  cat << EOF >> tmp_mas/mas_suite.yaml
+  certificateIssuer:
+    name: ${clusterissuer}
+    renewBefore: ${clusterissuer_renew}
+    duration: ${clusterissuer_duration}
+EOF
+fi
+
+oc apply -f tmp_mas/mas_suite.yaml > /dev/null 2>&1
 echo "${COLOR_GREEN}Done${COLOR_RESET}"
 
 sleep 1
 while [[ $(oc get Suite ${instanceid} --ignore-not-found=true -n ${namespace} --no-headers -o jsonpath="{.metadata.uid}") == "" ]];do  sleep 1; done &
 showWorking $!
 printf '\b'
-
-owneruid=$(oc get Suite ${instanceid} -n ${namespace} -o jsonpath="{.metadata.uid}")
-
 
 echo -n "	Admin dashboard ready       "
 while [[ $(oc get deployment/${instanceid}-admin-dashboard --ignore-not-found=true -o jsonpath='{.status.readyReplicas}' -n ${namespace}) != "1" ]];do  sleep 5; done &
@@ -125,6 +141,9 @@ showWorking $!
 printf '\b'
 echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}"
 
+owneruid=$(oc get Suite ${instanceid} -n ${namespace} -o jsonpath="{.metadata.uid}")
+
+
 echo_h1 "Installation Summary"
 echo_h2 "Administration Dashboard URL"
 echo_highlight "https://admin.${domain}"
@@ -136,7 +155,7 @@ echo -n "Password: "
 oc get secret ${instanceid}-credentials-superuser -o jsonpath='{.data.password}' -n ${namespace} | base64 --decode && echo ""
 
 
-echo_h2 "[2/6] Instanciating Mongo configuration"
+echo_h2 "[2/8] Instanciating Mongo configuration"
 echo "	Retriving certificates from mongodb generated scripts"
 mongosvc=$(oc get service -n ${MONGO_NAMESPACE} | grep -i ClusterIP | awk '{printf $1}')
 mongopod=$(oc get pods --selector app=$mongosvc -n mongo | sed '2!d' | awk '{printf $1}')
@@ -145,7 +164,7 @@ mongoCACertificate=$(getcert "$tmpcert" 1 | sed 's/^/\ \ \ \ \ \ \ \ /g')
 mongoServerCertificate=$(getcert "$tmpcert" 2 | sed 's/^/\ \ \ \ \ \ \ \ /g')
 
 echo -n "	Creating mongo configuration... "
-cat << EOF > tmp/mas_mongocfg.yaml
+cat << EOF > tmp_mas/mas_mongocfg.yaml
 apiVersion: config.mas.ibm.com/v1
 kind: MongoCfg
 metadata:
@@ -183,7 +202,7 @@ ${mongoServerCertificate}
   type: external
 EOF
 
-oc apply -f tmp/mas_mongocfg.yaml > /dev/null 2>&1
+oc apply -f tmp_mas/mas_mongocfg.yaml > /dev/null 2>&1
 echo "${COLOR_GREEN}Done${COLOR_RESET}"
 
 sleep 1
@@ -194,7 +213,7 @@ mongoowneruid=$(oc get MongoCfg ${instanceid}-mongo-system -n ${namespace} -o js
 mongocfgpassword=$(oc -n ${MONGO_NAMESPACE} get secret mas-mongo-ce-admin-password -o jsonpath="{.data.password}" | base64 -d)
 
 echo -n "	Creating mongo configuration credentials... "
-cat << EOF > tmp/mas_mongocfg_mongo_credentials.yaml
+cat << EOF > tmp_mas/mas_mongocfg_mongo_credentials.yaml
 kind: Secret
 apiVersion: v1
 metadata:
@@ -211,7 +230,7 @@ data:
 type: Opaque  
 EOF
 
-oc apply -f tmp/mas_mongocfg_mongo_credentials.yaml > /dev/null 2>&1
+oc apply -f tmp_mas/mas_mongocfg_mongo_credentials.yaml > /dev/null 2>&1
 echo "${COLOR_GREEN}Done${COLOR_RESET}"
 
 echo -n "	Mongo Config Ready      "
@@ -220,7 +239,7 @@ showWorking $!
 printf '\b'
 echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}"
 
-echo_h2 "[3/6] Instanciating BAS configuration"
+echo_h2 "[3/8] Instanciating BAS configuration"
 echo "	Retrieving BAS endpoint"
 bas_endpoint=$(oc get routes bas-endpoint -n "${bas_projectName}" | awk 'NR==2 {print $2}')
 bas_url=https://$bas_endpoint
@@ -237,7 +256,7 @@ basCA2Certificate=$(getcert "$bas_certificates" 2 | sed 's/^/\ \ \ \ \ \ \ \ /g'
 basCA5Certificate=$(wget -qO - https://letsencrypt.org/certs/isrgrootx1.pem | sed 's/^/\ \ \ \ \ \ \ \ /g')
 
 echo -n "	Creating BAS configuration... "
-cat << EOF > tmp/mas_bascfg.yaml
+cat << EOF > tmp_mas/mas_bascfg.yaml
 apiVersion: config.mas.ibm.com/v1
 kind: BasCfg
 metadata:
@@ -273,7 +292,7 @@ ${basCA5Certificate}
   displayName: System BAS Configuration
 EOF
 
-oc apply -f tmp/mas_bascfg.yaml > /dev/null 2>&1
+oc apply -f tmp_mas/mas_bascfg.yaml > /dev/null 2>&1
 echo "${COLOR_GREEN}Done${COLOR_RESET}"
 
 sleep 1
@@ -283,7 +302,7 @@ printf '\b'
 basowneruid=$(oc get BasCfg ${instanceid}-bas-system -n ${namespace} -o jsonpath="{.metadata.uid}")
 
 echo -n "	Creating BAS configuration credentials... "
-cat << EOF > tmp/mas_bascfg_bas_credentials.yaml
+cat << EOF > tmp_mas/mas_bascfg_bas_credentials.yaml
 kind: Secret
 apiVersion: v1
 metadata:
@@ -299,7 +318,7 @@ data:
 type: Opaque
 EOF
 
-oc apply -f tmp/mas_bascfg_bas_credentials.yaml > /dev/null 2>&1
+oc apply -f tmp_mas/mas_bascfg_bas_credentials.yaml > /dev/null 2>&1
 echo "${COLOR_GREEN}Done${COLOR_RESET}"
 
 echo -n "	BAS Config Ready      "
@@ -308,7 +327,7 @@ showWorking $!
 printf '\b'
 echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}"
 
-echo_h2 "[4/6] Instanciating SLS configuration"
+echo_h2 "[4/8] Instanciating SLS configuration"
 echo "	Retriving SLS url"
 sls_url=$(oc get ConfigMap sls-suite-registration -n ${slsnamespace} -o jsonpath="{.data.url}")
 
@@ -319,7 +338,7 @@ echo "	Retriving SLS registrationKey"
 slsRegistrationKey=$(oc get ConfigMap sls-suite-registration -n ${slsnamespace} -o jsonpath="{.data.registrationKey}" | base64 )
 
 echo -n "	Creating SLS configuration... "
-cat << EOF > tmp/mas_slsconfig.yaml
+cat << EOF > tmp_mas/mas_slsconfig.yaml
 apiVersion: config.mas.ibm.com/v1
 kind: SlsCfg
 metadata:
@@ -346,7 +365,7 @@ ${slscertificate}
   displayName: System SLS Configuration
 EOF
 
-oc apply -f tmp/mas_slsconfig.yaml > /dev/null 2>&1
+oc apply -f tmp_mas/mas_slsconfig.yaml > /dev/null 2>&1
 echo "${COLOR_GREEN}Done${COLOR_RESET}"
 
 sleep 1
@@ -356,7 +375,7 @@ printf '\b'
 slsowneruid=$(oc get SlsCfg ${instanceid}-sls-system -n ${namespace} -o jsonpath="{.metadata.uid}")
 
 echo -n "	Creating SLS configuration credentials... "
-cat << EOF > tmp/mas_slscfg_sls_credentials.yaml
+cat << EOF > tmp_mas/mas_slscfg_sls_credentials.yaml
 kind: Secret
 apiVersion: v1
 metadata:
@@ -372,7 +391,7 @@ data:
 type: Opaque
 EOF
 
-oc apply -f tmp/mas_slscfg_sls_credentials.yaml > /dev/null 2>&1
+oc apply -f tmp_mas/mas_slscfg_sls_credentials.yaml > /dev/null 2>&1
 echo "${COLOR_GREEN}Done${COLOR_RESET}"
 
 echo -n "	SLS Config Ready      "
@@ -381,11 +400,15 @@ showWorking $!
 printf '\b'
 echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}"
 
-echo_h2 "[5/6] Instanciating of workspace configuration"
+echo "SLS host is : $(oc get -n ${slsnamespace} cm sls-rlks-cfg -o jsonpath='{.data.embedded\.yaml}' | head -4 | grep host | awk '{printf $2}' | tr -d '"')"
+echo "SLS id is   : $(oc get -n ${slsnamespace} cm sls-rlks-cfg -o jsonpath='{.data.embedded\.yaml}' | head -4 | grep id | awk '{printf $3}' | tr -d '"')"
+echo "SLS port is : $(oc get -n ${slsnamespace} cm sls-rlks-cfg -o jsonpath='{.data.embedded\.yaml}' | head -4 | grep lmgrdPort | awk '{printf $2}' | tr -d '"')"
+
+echo_h2 "[5/8] Instanciating of workspace configuration"
 echo "	workspace id is $workspaceid"
 
 echo -n "	Creating Workspace configuration... "
-cat << EOF > tmp/mas_wsconfig.yaml
+cat << EOF > tmp_mas/mas_wsconfig.yaml
 apiVersion: core.mas.ibm.com/v1
 kind: Workspace
 metadata:
@@ -404,7 +427,7 @@ spec:
   settings: {}
 EOF
 
-oc apply -f tmp/mas_wsconfig.yaml > /dev/null 2>&1
+oc apply -f tmp_mas/mas_wsconfig.yaml > /dev/null 2>&1
 echo "${COLOR_GREEN}Done${COLOR_RESET}"
 
 echo -n "	Workspace Config Ready      "
@@ -416,7 +439,7 @@ echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}"
 exit 0
 
 
-echo_h2 "[6/6] Instanciating Manage JDBC configuration"
+echo_h2 "[6/8] Instanciating Manage JDBC configuration"
 if [[ $jdbcurl == *"sslConnection=true"* ]]; then
   jdbcsslenabled=true
 
@@ -429,7 +452,7 @@ else
 fi
 
 echo "	Creating JDBC configuration... "
-cat << EOF > tmp/mas_manage_jdbc_cfg.yaml
+cat << EOF > tmp_mas/mas_manage_jdbc_cfg.yaml
 apiVersion: config.mas.ibm.com/v1
 kind: JdbcCfg
 metadata:
@@ -461,11 +484,111 @@ ${jdbccrt}
   type: external
 EOF
 
-oc apply -f tmp/mas_manage_jdbc_cfg.yaml > /dev/null 2>&1
+oc apply -f tmp_mas/mas_manage_jdbc_cfg.yaml > /dev/null 2>&1
 echo "${COLOR_GREEN}Done${COLOR_RESET}"
 
 echo -n "JDBC Config Ready      "
 while [[ $(oc get JdbcCfg ${instanceid}-jdbc-wsapp-${workspaceid}-manage--ignore-not-found=true -n ${namespace} --no-headers) != *"Ready"* ]];do  sleep 5; done &
+showWorking $!
+printf '\b'
+echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}"
+
+
+echo_h2 "[7/8] Creating kafka user..."
+
+cat << EOF > tmp_mas/kafka_user.yaml
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: ${kafkauser}
+  labels:
+    strimzi.io/cluster: ${kafkaclustername}
+  namespace: ${namespace}
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    acls:
+      - host: '*'
+        operation: All
+        resource:
+          name: '*'
+          patternType: prefix
+          type: topic
+      - host: '*'
+        operation: All
+        resource:
+          name: '*'
+          patternType: prefix
+          type: group
+      - host: '*'
+        operation: All
+        resource:
+          name: '*'
+          patternType: literal
+          type: topic
+      - host: '*'
+        operation: All
+        resource:
+          name: '*'
+          patternType: literal
+          type: group
+    type: simple
+EOF
+
+oc apply -f tmp_mas/kafka_user.yaml > /dev/null 2>&1
+echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}"
+
+echo_h2 "[8/8] Configuring MAS kafka"
+
+kafkacert=$(oc get Kafka ${kafkaclustername} -n ${namespace} -o jsonpath="{.status.listeners[?(@.type=='tls')].certificates[0]}"| sed 's/^/\ \ \ \ \ \ \ \ \ \ /g')
+kafkahost=$(oc get Kafka ${kafkaclustername} -n ${namespace} -o jsonpath="{.status.listeners[?(@.type=='tls')].addresses[0].host}")
+kafkaport=$(oc get Kafka ${kafkaclustername} -n ${namespace} -o jsonpath="{.status.listeners[?(@.type=='tls')].addresses[0].port}")
+kafkauserpassword=$(oc get secret $(oc get KafkaUser ${kafkauser} -n ${namespace} -o jsonpath="{.status.secret}") -n ${namespace} -o jsonpath="{.data.password}")
+
+cat << EOF > tmp_mas/mas_config_kafka.yaml
+apiVersion: config.mas.ibm.com/v1
+kind: KafkaCfg
+metadata:
+  name: ${instanceid}-kafka-system
+  namespace: mas-${instanceid}-core
+  labels:
+    mas.ibm.com/configScope: system
+    mas.ibm.com/instanceId: ${instanceid}
+spec:
+  certificates:
+    - alias: kafka
+      crt: |-
+${kafkacert}
+  config:
+    credentials:
+      secretName: ${instanceid}-usersupplied-kafka-creds-system
+    hosts:
+      - host: ${kafkahost}
+        port: ${kafkaport}
+    saslMechanism: SCRAM-SHA-512
+  displayName: MAS Kafka configuration
+  type: external
+EOF
+
+oc apply -f tmp_mas/mas_config_kafka.yaml > /dev/null 2>&1
+
+cat << EOF > tmp_mas/mas_config_kafka_credentials.yaml
+kind: Secret
+apiVersion: v1
+metadata:
+  name: ${instanceid}-usersupplied-kafka-creds-system
+  namespace: mas-${instanceid}-core
+data:
+  password: $(echo -n "${kafkauser}" | base64)
+  username: ${kafkauserpassword}
+type: Opaque  
+EOF
+
+oc apply -f tmp_mas/mas_config_kafka_credentials.yaml > /dev/null 2>&1
+
+echo -n "	Configuration ready              "
+while [[ $(oc get KafkaCfg ${instanceid}-kafka-system --ignore-not-found=true -o jsonpath="{.status.conditions[?(@.type=='Ready')].status}" -n mas-${instanceid}-core) != "True" ]];do sleep 5; done & 
 showWorking $!
 printf '\b'
 echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}"

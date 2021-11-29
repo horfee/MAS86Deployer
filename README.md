@@ -51,6 +51,8 @@ This will install :
 - Install IBM Common Services operator, Operand Lifecycle Manager
 - Cert-manager (without ClusterIssuer : you will have to create your own before continuing if you want to have valid certificates)
 - IBM Suite License Service (AppPoints Server)
+- Kafka (using Strimzi operator) : it is not a prerequisite for MAS Core but necessary for IOT and MAS Manage (to enable MIF services using messaging queues)
+
 
 ## MAS Core
 MAS Core needs some software to be completely setup. When installing MAS Core, you can interact / setup the integration in 2 ways.
@@ -83,6 +85,57 @@ This script will create :
 - the selected languages
 This script will _not_ create:
 - the pod / bundles : you have to manually create them in the MAS dashboard. Once setup, just click on activate and your MAS Manage will be built and deployed
+- a kafka user and some topics to enable MIF services
+
+Once deployed / activated, you will need to change settings in MAS Manage: 
+
+
+### System Properties
+- Create a new Property
+    - Name: mxe.kafka.enablesslverification
+    - Description: "Enable SSL Verification for kafka brokers"
+    - Global value: false
+
+(Do not forget to perform a live refresh)
+
+### External system
+- Create a new Message Provider
+    - Name: KAFKA
+    - Provider : KAFKA
+    - BOOTSTRAPSERVERS: maskafka-kafka-bootstrap.mas-kafka.svc:9092
+    - SASL_MECHANISM: SCRAM-SHA-512
+    - SECURITY_PROTOCOL: SASL_PLAINTEXT
+    - USERNAME: mas-manage (or user defined in the file masmanage.properties)
+    - PASSWORD: the 
+- Create new queues
+    - manage-cqin
+        - provider: KAFKA
+        - sequential : false
+        - inbound: true
+    - manage-cqinerr
+        - provider: KAFKA
+        - sequential : false
+        - inbound: true
+    - manage-notf
+        - provider: KAFKA
+        - sequential : false
+        - inbound: false
+    - manage-notferr
+        - provider: KAFKA
+        - sequential : false
+        - inbound: false
+    - manage-weather
+        - provider: KAFKA
+        - sequential : false
+        - inbound: true
+    - manage-sqin
+        - provider: KAFKA
+        - sequential : true
+        - inbound: true
+    - manage-sqout
+        - provider: KAFKA
+        - sequential : true
+        - inbound: false
 
 ## MAS MSO
 ```

@@ -15,12 +15,23 @@ else
   echo "Domain is preset with ${domain}"
 fi
 
+
 echo "Installing MAS 8.6 pre-reqs"
-rm -rf tmp
-mkdir tmp
+rm -rf tmp_prereqs
+mkdir tmp_prereqs
+
+echo "Installation of cert manager"
+# technote : https://cert-manager.io/docs/installation/
+#oc create namespace cert-manager
+#oc project cert-manager
+oc apply -f https://github.com/jetstack/cert-manager/releases/download/v1.6.0/cert-manager.yaml
+if [[ -f "./install_webhook.sh" ]]; then
+  ./install_webhook.sh
+fi
+
 
 echo "Instantiate Service Bindings Operator (SBO)"
-cat << EOF > tmp/sbo.yaml
+cat << EOF > tmp_prereqs/sbo.yaml
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
@@ -35,7 +46,7 @@ spec:
   startingCSV: service-binding-operator.v0.8.0
 EOF
 
-oc apply -f tmp/sbo.yaml
+oc apply -f tmp_prereqs/sbo.yaml
 
 while [[ $(oc get Subscription rh-service-binding-operator -n openshift-operators -o jsonpath="{.status.conditions[*].type}") != *"InstallPlanPending"* ]];do sleep 5; done & 
 showWorking $!
@@ -52,7 +63,6 @@ while [[ $(oc get ClusterServiceVersion -n openshift-operators service-binding-o
 showWorking $!
 printf '\b'
 echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}"
-
 
 # installation Behavior Analytics Service
 cat << EOF > cr.properties
@@ -82,11 +92,6 @@ EOF
 # ATTENTION : dbuser and grafanauser values must be in lowercase with alphanumeric values !!!!
 ./install_bas.sh
 
-echo "Installation of cert manager"
-# technote : https://cert-manager.io/v1.2-docs/installation/openshift/
-oc create namespace cert-manager
-oc project cert-manager
-oc apply -f https://github.com/jetstack/cert-manager/releases/download/v1.2.0/cert-manager.yaml
 
 echo "Installation of mongodb"
 git clone https://github.com/ibm-watson-iot/iot-docs
@@ -110,7 +115,7 @@ cd ../
 cd ../../
 
 echo "Enabling IBM catalog"
-cat << EOF > tmp/enable_ibm_operator_catalog.yaml
+cat << EOF > tmp_prereqs/enable_ibm_operator_catalog.yaml
 
 ---
 apiVersion: operators.coreos.com/v1alpha1
@@ -192,7 +197,7 @@ EOF
 #    - name: INSTALL_SCOPE
 #      value: namespaced
 
-oc apply -f tmp/enable_ibm_operator_catalog.yaml
+oc apply -f tmp_prereqs/enable_ibm_operator_catalog.yaml
 
 echo -n "Operator catalog ready              "
 while [[ $(oc get CatalogSource ibm-operator-catalog -n openshift-marketplace -o jsonpath="{.status.connectionState.lastObservedState}" --ignore-not-found=true ) != "READY" ]];do sleep 5; done & 
@@ -209,10 +214,6 @@ showWorking $!
 printf '\b'
 echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}"
 
-exit
-
-
-
 echo "Installing SLS"
 # create a project dedicated for SLS
 oc new-project ${slsnamespace}
@@ -220,7 +221,7 @@ oc project ${slsnamespace}
 
 echo "Instantiate operator"
 
-cat << EOF > tmp/install_sls.yaml
+cat << EOF > tmp_prereqs/install_sls.yaml
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
@@ -230,10 +231,10 @@ spec:
   targetNamespaces:
     - ${slsnamespace}
 EOF
-oc create -f tmp/install_sls.yaml
+oc create -f tmp_prereqs/install_sls.yaml
 
 echo "Activate subscription"
-cat << EOF > tmp/install_sls_subscription.yaml
+cat << EOF > tmp_prereqs/install_sls_subscription.yaml
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
@@ -249,7 +250,7 @@ spec:
   sourceNamespace: openshift-marketplace
 EOF
 
-oc create -f tmp/install_sls_subscription.yaml
+oc create -f tmp_prereqs/install_sls_subscription.yaml
 
 while [[ $(oc get ClusterServiceVersion -n ${slsnamespace} --no-headers | grep ibm-sls | awk '{printf $1}') == "" ]];do sleep 1; done & showWorking $!
 printf '\b'
@@ -262,7 +263,7 @@ echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}"
 
 
 echo "Create LicenseService instance"
-cat << EOF > tmp/sls_mongo_credentials.yaml
+cat << EOF > tmp_prereqs/sls_mongo_credentials.yaml
 apiVersion: v1
 kind: Secret
 type: Opaque
@@ -275,13 +276,13 @@ stringData:
 EOF
 
 oc -n ${slsnamespace} create secret docker-registry ibm-entitlement --docker-server=cp.icr.io --docker-username="cp" --docker-password=${ER_KEY}
-oc -n ${slsnamespace} apply -f tmp/sls_mongo_credentials.yaml
+oc -n ${slsnamespace} apply -f tmp_prereqs/sls_mongo_credentials.yaml
 
 # retrieve mongo self signed certificates
 mongoCACertificate=$(cat iot-docs/mongodb/certs/ca.pem  | sed 's/^/\ \ \ \ \ \ \ \ \ \ /g')
 mongoServerCertificate=$(cat iot-docs/mongodb/certs/mongodb.pem | sed -ne '/BEGIN\ CERTIFICATE/,/END\ CERTIFICATE/p'| sed 's/^/\ \ \ \ \ \ \ \ \ \ /g')
 
-cat << EOF > tmp/sls_instance.yaml
+cat << EOF > tmp_prereqs/sls_instance.yaml
 apiVersion: sls.ibm.com/v1
 kind: LicenseService
 metadata:
@@ -336,16 +337,148 @@ ${mongoServerCertificate}
       samplingPeriod: 900
 EOF
 
-oc apply -f tmp/sls_instance.yaml
+oc apply -f tmp_prereqs/sls_instance.yaml
 
 while [[ $(oc get LicenseService sls -n ${slsnamespace} -o jsonpath="{.status.conditions[?(@.type=='Ready')].status}"  --ignore-not-found=true) != "True" ]];do sleep 5; done & 
 showWorking $!
 printf '\b'
 echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}"
 
-# export SLS certificates
-mkdir ibm-sls
-oc get secret -n ${slsnamespace} sls-cert-ca -o jsonpath='{.data.tls\.key}' | base64 -d > ibm-sls/tls.key
-oc get secret -n ${slsnamespace} sls-cert-ca -o jsonpath='{.data.tls\.crt}' | base64 -d > ibm-sls/tls.crt
-oc get secret -n ${slsnamespace} sls-cert-ca -o jsonpath='{.data.ca\.crt}' | base64 -d > ibm-sls/ca.crt
 
+echo_h2 "[8/] Deploying Kafka for MAS"
+oc project "${kafkanamespace}" > /dev/null 2>&1
+if [[ "$?" == "1" ]]; then
+  oc new-project "${kafkanamespace}" --display-name "MAS Kafka" > /dev/null 2>&1
+fi
+
+namespace=$(oc config view --minify -o 'jsonpath={..namespace}')
+
+operator_name=$(oc get ClusterServiceVersion strimzi-cluster-operator.v0.22.1 -n ${namespace} -o jsonpath="{.spec.install.spec.deployments[0].name}")
+if [[ -z ${operator_name} ]]; then  # We must deploy operatorgroup, operator and cluster as no strimzi operator in this namespace have been found
+
+echo "  Installing operator"
+echo "	Operator will be by default set up to manual on channel 8.x"
+
+cat << EOF > tmp_prereqs/strimzi_operatorgroup.yaml
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: kafka-operatorgroup
+  namespace: ${namespace}
+spec:
+  targetNamespaces:
+    - ${namespace}
+EOF
+
+oc apply -f tmp_prereqs/strimzi_operatorgroup.yaml > /dev/null 2>&1
+echo "	Operator group created"
+
+cat << EOF > tmp_prereqs/strimzi_operator.yaml
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: strimzi-kafka-operator
+  namespace: ${namespace}
+spec:
+  channel: strimzi-0.22.x
+  installPlanApproval: Manual
+  name: strimzi-kafka-operator
+  source: community-operators
+  sourceNamespace: openshift-marketplace
+EOF
+
+oc apply -f tmp_prereqs/strimzi_operator.yaml > /dev/null 2>&1
+echo "	Operator created"
+
+while [[ $(oc get Subscription strimzi-kafka-operator -n ${namespace} --ignore-not-found=true -o jsonpath='{.status.state}') != "UpgradePending" ]];do sleep 5; done & 
+showWorking $!
+printf '\b'
+
+echo "	Approving manual installation"
+# Find install plan
+installplan=$(oc get subscription strimzi-kafka-operator -o jsonpath="{.status.installplan.name}" -n ${namespace})
+echo "	installplan: $installplan"
+
+# Approve install plan
+oc patch installplan ${installplan} -n ${namespace} --type merge --patch '{"spec":{"approved":true}}' > /dev/null 2>&1
+
+while [[ $(oc get ClusterServiceVersion -n ${namespace} --no-headers | grep strimzi-cluster-operator | awk '{printf $1}') == "" ]];do sleep 1; done & showWorking $!
+printf '\b'
+
+operator_name=$(oc get ClusterServiceVersion strimzi-cluster-operator.v0.22.1 -n ${namespace} -o jsonpath="{.spec.install.spec.deployments[0].name}")
+
+
+echo -n "	Operator ready              "
+while [[ $(oc get deployment/${operator_name} --ignore-not-found=true -o jsonpath='{.status.readyReplicas}' -n ${namespace}) != "1" ]];do sleep 5; done & 
+showWorking $!
+printf '\b'
+echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}"
+
+fi
+
+echo_h2 " Instanciating kafka cluster"
+
+cat << EOF > tmp_prereqs/kafka_instance.yaml
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  namespace: ${namespace}
+  name: ${kafkaclustername}
+spec:
+  kafka:
+    config:
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+      log.message.format.version: '2.7'
+      inter.broker.protocol.version: '2.7'
+    version: 2.7.0
+    authorization:
+      type: simple
+    storage:
+      volumes:
+        - id: 0
+          size: 100Gi
+          deleteClaim: true
+          class: ${kafkastorageclass}
+          type: persistent-claim
+      type: jbod
+    replicas: 3
+    jvmOptions:
+      '-Xms': 3072m
+      '-Xmx': 3072m
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+        authentication:
+          type: scram-sha-512
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+        authentication:
+          type: scram-sha-512
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+  zookeeper:
+    storage:
+      class: ${kafkastorageclass}
+      deleteClaim: true
+      size: 10Gi
+      type: persistent-claim
+    replicas: 3
+    jvmOptions:
+      '-Xms': 768m
+      '-Xmx': 768m
+EOF
+
+oc apply -f tmp_prereqs/kafka_instance.yaml > /dev/null 2>&1
+
+echo -n "	Kafka ready              "
+while [[ $(oc get Kafka ${kafkaclustername} --ignore-not-found=true -o jsonpath="{.status.conditions[?(@.type=='Ready')].status}" -n ${namespace}) != "True" ]];do sleep 5; done & 
+showWorking $!
+printf '\b'
+echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}"

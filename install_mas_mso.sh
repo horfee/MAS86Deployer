@@ -13,8 +13,8 @@ if [[ "$?" == "1" ]]; then
   oc new-project "mas-${instanceid}-mso" --display-name "MAS MSO (${instanceid})" > /dev/null 2>&1
 fi
 
-rm -rf tmp
-mkdir tmp
+rm -rf tmp_mso
+mkdir tmp_mso
 
 
 export namespace=$(oc config view --minify -o 'jsonpath={..namespace}')
@@ -26,7 +26,7 @@ echo "${COLOR_GREEN}Done${COLOR_RESET}"
 echo_h2 "[1/6] Installing operator"
 echo "	Operator will be by default set up to manual on channel 8.x"
 
-cat << EOF > tmp/mas_operatorgroup.yaml
+cat << EOF > tmp_mso/mas_operatorgroup.yaml
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
@@ -37,10 +37,10 @@ spec:
     - ${namespace}
 EOF
 
-oc apply -f tmp/mas_operatorgroup.yaml > /dev/null 2>&1
+oc apply -f tmp_mso/mas_operatorgroup.yaml > /dev/null 2>&1
 echo "	Operator group created"
 
-cat << EOF > tmp/mas_operator.yaml
+cat << EOF > tmp_mso/mas_operator.yaml
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
@@ -54,7 +54,7 @@ spec:
   sourceNamespace: openshift-marketplace
 EOF
 
-oc apply -f tmp/mas_operator.yaml > /dev/null 2>&1
+oc apply -f tmp_mso/mas_operator.yaml > /dev/null 2>&1
 echo "	Operator created"
 
 while [[ $(oc get Subscription ibm-mas-mso -n ${namespace} --ignore-not-found=true -o jsonpath='{.status.state}') != "UpgradePending" ]];do sleep 5; done & 
@@ -77,7 +77,7 @@ echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}"
 
 
 echo_h2 "[1/1] Creating Service Bindings"
-cat << EOF > tmp/mas_mso_bindings.yaml
+cat << EOF > tmp_mso/mas_mso_bindings.yaml
 apiVersion: binding.operators.coreos.com/v1alpha1
 kind: ServiceBinding
 metadata:
@@ -134,10 +134,10 @@ spec:
 
 EOF
 
-oc apply -f tmp/mas_mso_bindings.yaml > /dev/null 2>&1
+oc apply -f tmp_mso/mas_mso_bindings.yaml > /dev/null 2>&1
 
 echo_h2 "[1/2] Instanciating MSO app"
-cat << EOF > tmp/mas_mso_app.yaml
+cat << EOF > tmp_mso/mas_mso_app.yaml
 apiVersion: apps.mas.ibm.com/v1
 kind: MSOApp
 metadata:
@@ -152,7 +152,7 @@ spec:
   components: {}
 EOF
 
-oc apply -f tmp/mas_mso_app.yaml > /dev/null 2>&1
+oc apply -f tmp_mso/mas_mso_app.yaml > /dev/null 2>&1
 
 
 echo -n "	MSO Config Ready      "
@@ -164,7 +164,7 @@ echo -e "${COLOR_GREEN}[OK]${COLOR_RESET}"
 
 echo_h2 "Creating MSO workspace..."
 
-cat << EOF > tmp/mas_mso_workspace.yaml
+cat << EOF > tmp_mso/mas_mso_workspace.yaml
 apiVersion: apps.mas.ibm.com/v1
 kind: MSOWorkspace
 metadata:
@@ -193,7 +193,7 @@ spec:
 
 EOF
 
-oc apply -f tmp/mas_mso_app.yaml > /dev/null 2>&1
+oc apply -f tmp_mso/mas_mso_app.yaml > /dev/null 2>&1
 
 
 echo -n "	MSO Workspace Ready      "
